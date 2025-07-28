@@ -14,7 +14,7 @@ joints_name = (
     "main_gripper"
 )
 AGENT_DIM = len(joints_name)
-ENV_DIM = 10
+ENV_DIM = 17
 color_dict = {
     "red":   (1.0, 0.0, 0.0, 1.0),
     "green": (0.0, 1.0, 0.0, 1.0),
@@ -66,35 +66,58 @@ class CubeStackOne:
         quat = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         z = self.island_top_z + 0.02 + 0.001
 
-        # === Sample positions until they are far enough apart ===
-        min_distance = 0.06  # minimum distance between cube_1 and cube_2 in XY
+        tray_center = torch.tensor([-0.1, -0.1])
+        tray_size = torch.tensor([0.18, 0.22])  # (幅, 奥行き)
+        z = self.island_top_z + 0.02 + 0.001
+        min_distance = 0.06
 
+        # お盆のX範囲（赤・緑共通）
+        tray_x_min = tray_center[0] - tray_size[0] / 2
+        tray_x_max = tray_center[0] + tray_size[0] / 2
+
+        # --- 赤ブロック：お盆のX範囲にかぶらない位置に配置 ---
         while True:
-            x1 = self._random.uniform(-0.3, -0.1)
-            y1 = self._random.uniform(-0.1, 0.1)
-            x2 = self._random.uniform(-0.3, -0.1)
-            y2 = self._random.uniform(-0.1, 0.1)
+            x1 = self._random.uniform(-0.32, -0.1)
+            y1 = self._random.uniform(-0.27, 0.27)
+
+            if tray_x_min <= x1 <= tray_x_max:
+                continue
+            break
+
+        # --- 緑ブロック：赤ブロックから一定距離，かつお盆X範囲外に配置 ---
+        while True:
+            x2 = self._random.uniform(-0.32, -0.1)
+            y2 = self._random.uniform(-0.3, 0.3)
+
+            # お盆のX範囲にかぶっていないか（X方向のみ）
+            if tray_x_min <= x2 <= tray_x_max:
+                continue
+
+            # 赤との距離チェック
             dx = x2 - x1
             dy = y2 - y1
-            if (dx ** 2 + dy ** 2) ** 0.5 >= min_distance:
-                break
+            if (dx ** 2 + dy ** 2) ** 0.5 < min_distance:
+                continue
 
+            break
+
+        # --- 座標に変換 ---
         pos1 = torch.tensor([x1, y1, z], dtype=torch.float32, device=gs.device)
         pos2 = torch.tensor([x2, y2, z], dtype=torch.float32, device=gs.device)
 
+        # --- オブジェクトに設定 ---
         self.cube_1.set_pos(pos1)
         self.cube_1.set_quat(quat)
         self.cube_2.set_pos(pos2)
         self.cube_2.set_quat(quat)
-
         # === Distractor cubes ===
-        if hasattr(self, "distractor_cubes"):
-            for i, cube in enumerate(self.distractor_cubes):
-                xd = self._random.uniform(-0.35, 0.0)
-                yd = self._random.uniform(-0.2, 0.2)
-                pos_d = torch.tensor([xd, yd, z], dtype=torch.float32, device=gs.device)
-                cube.set_pos(pos_d)
-                cube.set_quat(quat)
+        # if hasattr(self, "distractor_cubes"):
+        #     for i, cube in enumerate(self.distractor_cubes):
+        #         xd = self._random.uniform(-0.35, 0.0)
+        #         yd = self._random.uniform(-0.2, 0.2)
+        #         pos_d = torch.tensor([xd, yd, z], dtype=torch.float32, device=gs.device)
+        #         cube.set_pos(pos_d)
+        #         cube.set_quat(quat)
         # === Reset robot to home pose ===
         # qpos = np.array([0, 0, 0, 0, 0, 0]) 
         # qpos_tensor = torch.deg2rad(torch.tensor([0, 0, 0, 0, 0, 0], dtype=torch.float32, device=gs.device))
@@ -129,15 +152,24 @@ class CubeStackOne:
 
     
     def compute_reward(self):
-        pos_1 = self.cube_1.get_pos()  # (3,)
-        pos_2 = self.cube_2.get_pos()  # (3,)
+        cube1_center = self.cube_1.get_pos()
+        cube2_center = self.cube_2.get_pos()
+        tray_center = self.tray.get_pos()
 
-        xy_dist = torch.norm(pos_1[:2] - pos_2[:2])  # scalar
-        z_diff = pos_1[2] - pos_2[2]  # scalar
+        # --- 赤ブロック（cube1）の判定 ---
+        xy_dist_1 = torch.norm(cube1_center[:2] - tray_center[:2])
+        z_diff_1 = cube1_center[2] - tray_center[2]
+        success_1 = (xy_dist_1 < 0.08) and (z_diff_1 > 0.01)
 
-        reward = float((xy_dist < 0.05) and (z_diff > 0.03))  # scalar
+        # --- 緑ブロック（cube2）の判定 ---
+        xy_dist_2 = torch.norm(cube2_center[:2] - tray_center[:2])
+        z_diff_2 = cube2_center[2] - tray_center[2]
+        success_2 = (xy_dist_2 < 0.08) and (z_diff_2 > 0.01)
+
+        # --- どちらか成功で報酬を与える ---
+        success = success_1 or success_2
+        reward = float(success)
         return reward
-
     
     def get_obs(self):
         eef_pos = self.eef.get_pos()          # (3,)
@@ -150,10 +182,11 @@ class CubeStackOne:
 
         diff = eef_pos - cube1_pos            # (3,)
         dist = torch.norm(diff).unsqueeze(0)  # (1,)
+        tray_pos = torch.tensor([self.tray.get_pos()[0], self.tray.get_pos()[1], self.tray.get_pos()[2]], device=gs.device) # (3,)
 
         agent_pos = torch.cat([eef_pos, eef_rot, gripper], dim=0).float()  # (8,)
         agent_pos = self.so_101.get_qpos() # (6,)
-        environment_state = torch.cat([cube1_pos, cube1_rot, diff, dist, cube2_pos], dim=0).float()  # (13,)
+        environment_state = torch.cat([cube1_pos, cube1_rot, diff, dist, cube2_pos, tray_pos], dim=0).float()  # (13,)
         obs = {
             "agent_pos": agent_pos,
             "environment_state": environment_state,

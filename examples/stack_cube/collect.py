@@ -103,6 +103,92 @@ lerobot_dataset = LeRobotDataset.create(
     },
 )
 
+def expert_policy(robot, obs, stage):
+    """
+    Returns a list of (9,) torch tensors on the same device (e.g., mps:0).
+    """
+    device = obs["environment_state"].device
+    eef = robot.get_link("hand")
+    quat = torch.tensor([0, 1, 0, 0], dtype=torch.float32, device=device)
+
+    cube1_pos = obs["environment_state"][:3]        # (3,)
+    cube2_pos = obs["environment_state"][11:14]     # (3,)
+    grip_open = 0.04
+    grip_closed = -0.02
+
+    if stage == "hover":
+        target_pos = cube1_pos + torch.tensor([0.0, 0.0, 0.25], device=device)
+        grip = grip_open
+
+    elif stage == "grasp":
+        target_pos = cube1_pos + torch.tensor([0.0, 0.0, 0.045], device=device)
+        grip = grip_closed  # will interpolate later
+
+    elif stage == "lift":
+        target_pos = cube1_pos + torch.tensor([0.0, 0.0, 0.28], device=device)
+        grip = grip_closed
+
+    elif stage == "place":
+        # descend slightly lower and stabilize
+        target_pos = cube2_pos + torch.tensor([0.0, 0.0, 0.15], device=device)
+        grip = grip_closed
+
+    elif stage == "release":
+        # hover, descend, and hold before opening
+        target_pos = cube2_pos + torch.tensor([0.0, 0.0, 0.15], device=device)
+        grip = grip_open
+
+    else:
+        raise ValueError(f"Unknown stage: {stage}")
+
+    # === Inverse Kinematics ===
+    q_goal = robot.inverse_kinematics(
+        link=eef,
+        pos=target_pos,
+        quat=quat,
+    )
+    q_goal[-2:] = grip
+
+    # === Plan path ===
+    path = robot.plan_path(qpos_goal=q_goal, num_waypoints=100)
+
+    if stage == "grasp":
+        for i in range(len(path) - 5):
+            path[i][-2:] = grip_open
+        for i in range(len(path) - 5, len(path)):
+            alpha = (i - (len(path) - 5)) / 5
+            g = (1 - alpha) * grip_open + alpha * grip_closed
+            path[i][-2:] = g
+    else:
+        for i in range(len(path)):
+            path[i][-2:] = grip
+
+    # Extra hold at target for place/release
+    if stage in ["place", "release"]:
+        for _ in range(15):  # hold still at the final qpos
+            path.append(q_goal.clone())
+    return path  # List of (9,) torch tensors on GPU
+
+
+# === Setup Dataset ===
+agent_shape = (9,)
+action_shape = (9,)
+env_shape = (14,)
+dataset_path = Path("data/eval/stack_cube")
+lerobot_dataset = LeRobotDataset.create(
+    repo_id=None,
+    root=dataset_path,
+    robot_type="franka",
+    fps=60,
+    use_videos=True,
+    features={
+        "observation.state": {"dtype": "float32", "shape": agent_shape}, 
+        "action": {"dtype": "float32", "shape": action_shape},
+        "observation.image.top": {"dtype": "video", "shape": (480, 640, 3)},
+        "observation.image.side": {"dtype": "video", "shape": (480, 640, 3)},
+        "observation.image.wrist": {"dtype": "video", "shape": (480, 640, 3)},
+    },
+)
 
 #### Example for state only data collection
 # === Run Episodes ===

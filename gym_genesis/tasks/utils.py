@@ -254,7 +254,7 @@ def build_house(self, num_envs, env_spacing):
             viewer_options=viewer_options,
             show_viewer=True,
             vis_options=gs.options.VisOptions(
-                show_world_frame=False  # ✅ This disables the world frame XYZ arrows
+                show_world_frame=False,  # ✅ This disables the world frame XYZ arrows
             ),
         )
 
@@ -608,7 +608,8 @@ def build_house_task1(self):
             viewer_options=viewer_options,
             show_viewer=False,
             vis_options=gs.options.VisOptions(
-                show_world_frame=False  # ✅ This disables the world frame XYZ arrows
+                show_world_frame=False,  # ✅ This disables the world frame XYZ arrows
+                ambient_light    = (0.8, 0.8, 0.8), # 環境光を設定   
             ),
         )
 
@@ -774,19 +775,28 @@ def build_house_task1(self):
     )
 
     # === Distractor cubes on the island ===
-    self.distractor_cubes = []
-    for _ in range(3):
-        x = np.random.uniform(-0.25, 0.25)
-        y = np.random.uniform(-0.25, 0.25)
-        color = np.random.rand(3)
-        cube = self.scene.add_entity(
-            morph=gs.morphs.Box(
-                size=(0.04, 0.04, 0.04),
-                pos=(x, y, island_top_z + 0.02 + z_offset),
-            ),
-            surface=gs.surfaces.Plastic(color=tuple(color)),
-        )
-        self.distractor_cubes.append(cube)
+    # self.distractor_cubes = []
+    # for _ in range(3):
+    #     x = np.random.uniform(-0.25, 0.25)
+    #     y = np.random.uniform(-0.25, 0.25)
+    #     color = np.random.rand(3)
+    #     cube = self.scene.add_entity(
+    #         morph=gs.morphs.Box(
+    #             size=(0.04, 0.04, 0.04),
+    #             pos=(x, y, island_top_z + 0.02 + z_offset),
+    #         ),
+    #         surface=gs.surfaces.Plastic(color=tuple(color)),
+    #     )
+    #     self.distractor_cubes.append(cube)
 
+    # お盆（tray）をシーンに追加
+    self.tray = self.scene.add_entity(
+        morph=gs.morphs.Box(
+            size=(0.18, 0.22, 0.015),  # W18cm × D22cm × H1.5cm に拡大
+            pos=(-0.1, -0.1, island_top_z + 0.0075)  # 高さも半分を足すと自然に
+        ),
+        surface=gs.surfaces.Plastic(color=(0.6, 0.3, 0.1)),  # 木っぽい色
+        material=gs.materials.Rigid()
+    )
 
     self.scene.build()
