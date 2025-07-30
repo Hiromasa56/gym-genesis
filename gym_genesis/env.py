@@ -45,7 +45,7 @@ class GenesisEnv(gym.Env):
         if seed is not None:
             self._env.seed(seed)
 
-        observation = self._env.reset()
+        observation = self._env.reset(seed=seed)
 
         info = {"is_success": [False] * self.num_envs} 
         return observation, info

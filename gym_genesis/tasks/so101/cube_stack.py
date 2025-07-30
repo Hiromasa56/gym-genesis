@@ -62,7 +62,8 @@ class CubeStackOne:
                 "environment_state": spaces.Box(low=-np.inf, high=np.inf, shape=(ENV_DIM,), dtype=np.float32),
             })
         
-    def reset(self):
+    def reset(self, seed):
+        self._random = np.random.RandomState(seed)
         quat = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         z = self.island_top_z + 0.02 + 0.001
 

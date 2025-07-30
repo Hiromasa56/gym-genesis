@@ -365,7 +365,7 @@ def predict_action(
             observation[name] = observation[name].unsqueeze(0)
             observation[name] = observation[name].to(device)
 
-        observation["task"] = task if task else ""
+        observation["task"] = [task if task else ""]
         observation["robot_type"] = robot_type if robot_type else ""
 
         # Compute the next action with the policy
@@ -409,7 +409,8 @@ def remap_observation(obs: dict) -> dict:
 agent_shape = (8,)
 action_shape = (6,)
 env_shape = (14,)
-dataset_path = Path("data/eval/tray_cube_pi0")
+dataset_path = Path("data/eval/tray_cube_smolvla_temp")
+# dataset_path = Path("data/eval/tray_cube_pi0_v2")
 
 if dataset_path.exists():
     lerobot_dataset = LeRobotDataset(
@@ -488,56 +489,63 @@ if eval:
     #     dataset.meta
     # )
     # policy.to("cuda")
-    model_path = "data/weight/tray_cube_pi0/checkpoints/050000/pretrained_model"
-    policy = PI0Policy.from_pretrained(model_path)
+    # model_path = "data/weight/tray_cube_pi0_v2/checkpoints/050000/pretrained_model"
+    # policy = PI0Policy.from_pretrained(model_path)
 
-    # model_path = "data/weight/tray_cube_smolvla/checkpoints/020000/pretrained_model"
-    # policy = SmolVLAPolicy.from_pretrained(model_path)
+    model_path = "data/weight/tray_cube_smolvla_v2/checkpoints/050000/pretrained_model"
+    policy = SmolVLAPolicy.from_pretrained(model_path)
     policy.to("cuda")
-    policy.eval()
+    # policy.eval()
     rad2deg = 180 / np.pi
     deg2rad = np.pi / 180
 else:
     policy = None
 
-for ep in range(30):
+success_count = 0
+
+for ep in range(15):
     if policy is not None:
         policy.reset()
     print(f"\n🎬 Starting episode {ep+1}")
-    obs, _ = env.reset()
+    seed = ep + 1000
+    obs, _ = env.reset(seed=seed)
     all_states, all_actions = [], []
     top_frames, side_frames, wrist_frames = [], [], []
     all_rewards = []
     
     if eval:
         for i in range(400):
+            print(obs["agent_pos"])
             obs["agent_pos"] = (obs["agent_pos"] * rad2deg)
             obs["agent_pos"][1] *= -1  # flip joint 2
             obs["agent_pos"][4] *= -1  # flip joint 2
             policy_input = remap_observation(obs)
+            print(obs["agent_pos"], "obs agent pos")
             action = predict_action(
                 policy_input,
                 policy,
                 device=torch.device("cuda"),
                 use_amp=False,
-                task="Pick up the red block and place it on the tray.",
+                task="Pick up the green block and place it on the tray.",
                 robot_type="so101",
             )
+            print(f"Action: {action}")
             # print(f"Action values: {action}")
             action_for_env = action.clone()  # まず、変更可能なコピーを作成
             action_for_env[1] *= -1  # flip joint 2
             action_for_env[4] *= -1  # flip joint 2
             action_for_env = action_for_env * deg2rad
+            print(f"Action for env: {action_for_env}")
             obs, reward, done, _, _ = env.step(action_for_env)
             # all_states.append((obs["agent_pos"] * rad2deg).detach().cpu().numpy())
             pos_deg = (obs["agent_pos"] * rad2deg).detach().cpu().numpy()
             pos_deg[1] *= -1  # flip joint 2
             pos_deg[4] *= -1  # flip joint 2
             all_states.append(pos_deg)
-            act_deg = (action * rad2deg).detach().cpu().numpy()
-            act_deg[1] *= -1
-            act_deg[4] *= -1
-            all_actions.append(act_deg)
+            # act_deg = (action * rad2deg).detach().cpu().numpy()
+            # act_deg[1] *= -1
+            # act_deg[4] *= -1
+            all_actions.append(action)
             # all_actions.append((action * rad2deg).detach().cpu().numpy())
             all_rewards.append(reward)
 
@@ -547,7 +555,7 @@ for ep in range(30):
             wrist_frames.append(obs["pixels"]["wrist"])
     else:
         for stage in stages:
-            action_path = expert_policy_v2(env.get_robot(), obs, stage)
+            action_path = expert_policy_v3(env.get_robot(), obs, stage)
             print(f"Stage: {stage}, action path length: {len(action_path)}")
             for action in action_path:
                 obs, reward, done, _, _ = env.step(action)
@@ -587,7 +595,9 @@ for ep in range(30):
     wrist_arr = np.stack(wrist_frames)
 
     if rewards_arr[-1] > 0:
-    # if True:
+        success_count += 1
+        print(f"🎉 Episode {ep + 1} succeeded! Total successes: {success_count}")
+    if True:
         print(f"✅ Saving episode {ep + 1}")
         for t in range(states_arr.shape[0]):
             lerobot_dataset.add_frame({
@@ -602,3 +612,4 @@ for ep in range(30):
         lerobot_dataset.save_episode()
     else:
         print(f"🚫 Skipping episode {ep + 1} — reward was always 0")
+print(f"🎉 All episodes succeeded! Total successes: {success_count}")

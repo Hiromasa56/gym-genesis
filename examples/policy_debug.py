@@ -44,10 +44,10 @@ def main():
     sampler = EpisodeSampler(dataset, args.episode_index)
 
     # Load the policy
-    # policy = SmolVLAPolicy.from_pretrained(args.policy_path)
-    policy = PI0Policy.from_pretrained(args.policy_path)  # Uncomment if using PI0Policy
+    policy = SmolVLAPolicy.from_pretrained(args.policy_path)
+    # policy = PI0Policy.from_pretrained(args.policy_path)  # Uncomment if using PI0Policy
     policy.to(args.device)
-    policy.eval()
+    # policy.eval()
 
     # Evaluate the policy
     errors = []

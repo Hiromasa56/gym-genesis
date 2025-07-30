@@ -2,8 +2,8 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 # 例：既に作ったデータセット
 lerobot_dataset = LeRobotDataset(
-    repo_id="iiyudana/tray_cube",
-    root="data/train/tray_cube_v2"
+    repo_id="iiyudana/eval_stack_cube_smolvla",
+    root="data/train/stack_cubev2"
 )
 
 # Push to hub
